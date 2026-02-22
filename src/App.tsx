@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { findNuclide, calculateIsobars, type IsobarResult, calculateIsotopicDistribution, type IsotopeDistribution } from './utils/isobarCalculator';
+import { findNuclide, calculateIsobars, type IsobarResult, calculateIsotopicDistribution, type IsotopeDistribution, findNuclidesByMass } from './utils/isobarCalculator';
 import type { Isotope } from './data/isotopes';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import './index.css';
@@ -7,6 +7,7 @@ import './index.css';
 function App() {
   const [query, setQuery] = useState('157Gd');
   const [target, setTarget] = useState<Isotope | null>(null);
+  const [massNuclides, setMassNuclides] = useState<Isotope[]>([]);
   const [results, setResults] = useState<IsobarResult[]>([]);
   const [error, setError] = useState('');
   const [selectedDistribution, setSelectedDistribution] = useState<IsotopeDistribution[] | null>(null);
@@ -14,16 +15,39 @@ function App() {
 
   const handleSearch = () => {
     setError('');
+    setMassNuclides([]);
+
+    // Check if it's just a number
+    if (/^\d+$/.test(query)) {
+      const mass = parseInt(query);
+      const nuclides = findNuclidesByMass(mass);
+      if (nuclides.length > 0) {
+        setMassNuclides(nuclides);
+        // Default to most abundant
+        const mostAbundant = [...nuclides].sort((a, b) => b.abundance - a.abundance)[0];
+        performAnalysis(mostAbundant);
+      } else {
+        setError(`No stable isotopes found for mass ${mass}.`);
+      }
+      return;
+    }
+
     const found = findNuclide(query);
     if (found) {
-      setTarget(found);
-      const calculatedResults = calculateIsobars(found.nominalMass, found.exactMass);
-      setResults(calculatedResults);
+      const nuclides = findNuclidesByMass(found.nominalMass);
+      setMassNuclides(nuclides);
+      performAnalysis(found);
     } else {
       setTarget(null);
       setResults([]);
       setError(`Nuclide "${query}" not found. Try "157Gd" or "157".`);
     }
+  };
+
+  const performAnalysis = (nuclide: Isotope) => {
+    setTarget(nuclide);
+    const calculatedResults = calculateIsobars(nuclide.nominalMass, nuclide.exactMass);
+    setResults(calculatedResults);
   };
 
   const handleCardClick = (res: IsobarResult) => {
@@ -66,6 +90,23 @@ function App() {
 
         {error && <div className="error-message">{error}</div>}
 
+        {massNuclides.length > 1 && (
+          <div className="nuclide-selector glow-panel fade-in">
+            <p className="selector-title">Stable isotopes at mass {massNuclides[0].nominalMass}:</p>
+            <div className="nuclide-chips">
+              {massNuclides.map((iso) => (
+                <button
+                  key={`${iso.symbol}-${iso.nominalMass}`}
+                  className={`nuclide-chip ${target?.symbol === iso.symbol ? 'active' : ''}`}
+                  onClick={() => performAnalysis(iso)}
+                >
+                  {iso.nominalMass}{iso.symbol} ({iso.abundance.toFixed(2)}%)
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {target && (
           <div className="target-summary glow-panel">
             <div className="target-element">
@@ -75,51 +116,53 @@ function App() {
             <div className="target-details">
               <p>Exact Mass: <strong>{target.exactMass.toFixed(6)} u</strong></p>
               <p>Natural Abundance: <strong>{target.abundance.toFixed(4)}%</strong></p>
+              <span className="badge badge-primary">Target Nuclide</span>
             </div>
           </div>
         )}
 
         {results.length > 0 && (
           <div className="results-container">
-            <h2 className="results-title">Isobaric Interferences ({results.length})</h2>
-
-            <div className="results-grid">
-              {results.map((res, index) => (
-                <div
-                  key={index}
-                  className="result-card glow-panel fade-in clickable"
-                  style={{ animationDelay: `${index * 0.05}s` }}
-                  onClick={() => handleCardClick(res)}
-                >
-                  <div className="result-header">
-                    <span className={`badge ${res.type === 'Atomic' ? 'badge-primary' : 'badge-secondary'}`}>
-                      {res.type}
-                    </span>
-                    <span className="result-formula">{res.formula}</span>
-                  </div>
-                  <div className="result-details">
-                    <div className="detail-item">
-                      <span className="label">Exact Mass</span>
-                      <span className="value">{res.exactMass.toFixed(6)} u</span>
+            {results.some(r => r.type === 'Atomic') && (
+              <section className="results-section">
+                <h2 className="results-title">Atomic Isobars (Stable / Long-lived)</h2>
+                <div className="results-grid">
+                  {results.filter(res => res.type === 'Atomic').map((res, index) => (
+                    <div
+                      key={`atomic-${index}`}
+                      className="result-card glow-panel fade-in clickable"
+                      onClick={() => handleCardClick(res)}
+                    >
+                      <div className="result-header">
+                        <span className="badge badge-primary">Atomic</span>
+                        <span className="result-formula">{res.formula}</span>
+                      </div>
+                      <ResultBody res={res} />
                     </div>
-                    <div className="detail-item">
-                      <span className="label">ΔM</span>
-                      <span className="value highlight">{(res.deltaM * 1000).toFixed(3)} mDa</span>
-                    </div>
-                    <div className="detail-item">
-                      <span className="label">Req. Res (m/Δm)</span>
-                      <span className="value">{Math.round(res.requiredResolution).toLocaleString()}</span>
-                    </div>
-                    <div className="detail-item">
-                      <span className="label">Likelihood (Abundance %)</span>
-                      <span className="value indicator" style={{ width: `${Math.min(100, res.abundance * 10)}%` }}>
-                        {res.abundance.toExponential(2)}%
-                      </span>
-                    </div>
-                  </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </section>
+            )}
+
+            <section className="results-section">
+              <h2 className="results-title">Polyatomic Interferences</h2>
+              <div className="results-grid">
+                {results.filter(res => res.type === 'Polyatomic').map((res, index) => (
+                  <div
+                    key={`poly-${index}`}
+                    className="result-card glow-panel fade-in clickable"
+                    style={{ animationDelay: `${index * 0.05}s` }}
+                    onClick={() => handleCardClick(res)}
+                  >
+                    <div className="result-header">
+                      <span className="badge badge-secondary">Polyatomic</span>
+                      <span className="result-formula">{res.formula}</span>
+                    </div>
+                    <ResultBody res={res} />
+                  </div>
+                ))}
+              </div>
+            </section>
           </div>
         )}
 
@@ -149,7 +192,7 @@ function App() {
                       itemStyle={{ color: '#58a6ff' }}
                     />
                     <Bar dataKey="abundance">
-                      {selectedDistribution.map((entry, index) => (
+                      {selectedDistribution.map((entry: IsotopeDistribution, index: number) => (
                         <Cell
                           key={`cell-${index}`}
                           fill={entry.mass === (selectedDistribution.find(d => d.abundance === Math.max(...selectedDistribution.map(x => x.abundance)))?.mass) ? '#58a6ff' : '#a371f7'}
@@ -165,6 +208,31 @@ function App() {
           </div>
         )}
       </main>
+    </div>
+  );
+}
+
+function ResultBody({ res }: { res: IsobarResult }) {
+  return (
+    <div className="result-details">
+      <div className="detail-item">
+        <span className="label">Exact Mass</span>
+        <span className="value">{res.exactMass.toFixed(6)} u</span>
+      </div>
+      <div className="detail-item">
+        <span className="label">ΔM</span>
+        <span className="value highlight">{(res.deltaM * 1000).toFixed(3)} mDa</span>
+      </div>
+      <div className="detail-item">
+        <span className="label">Req. Res (m/Δm)</span>
+        <span className="value">{Math.round(res.requiredResolution).toLocaleString()}</span>
+      </div>
+      <div className="detail-item">
+        <span className="label">Likelihood (Abundance %)</span>
+        <span className="value indicator" style={{ width: `${Math.min(100, res.abundance * 10)}%` }}>
+          {res.abundance.toExponential(2)}%
+        </span>
+      </div>
     </div>
   );
 }

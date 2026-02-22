@@ -13,8 +13,9 @@ export interface IsobarResult {
 // Common interference elements in ICP-MS
 const POLYATOMIC_SOURCES = ['O', 'Ar', 'N', 'C', 'H', 'Cl', 'S'];
 
-export const filterIsotopesBySymbol = (symbol: string): Isotope[] => {
-    return ISOTOPES.filter((iso) => iso.symbol.toLowerCase() === symbol.toLowerCase());
+// Find all nuclides for a given mass number
+export const findNuclidesByMass = (mass: number): Isotope[] => {
+    return ISOTOPES.filter((iso) => iso.nominalMass === mass);
 };
 
 export const findNuclide = (query: string): Isotope | null => {
@@ -31,7 +32,7 @@ export const findNuclide = (query: string): Isotope | null => {
         ) || null;
     }
 
-    // If no symbol, just return the first isotope with that mass (not ideal, but handles mass only)
+    // If no symbol, we return the first one (usually the most abundant handled by UI now)
     return ISOTOPES.find((iso) => iso.nominalMass === mass) || null;
 };
 
